@@ -1,0 +1,209 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Local zero-config database (file:./dev.db). For PostgreSQL production, set provider = "postgresql".
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String
+  passwordHash String
+  role         String     @default("STAFF") // OWNER | MANAGER | STAFF | THERAPIST
+  therapistId  Int?       @unique
+  therapist    Therapist? @relation(fields: [therapistId], references: [id])
+}
+
+model Service {
+  id              Int            @id @default(autoincrement())
+  name            String
+  description     String?
+  minutes         Int
+  price           Int
+  category        String
+  tint            String?
+  commissionType  String         @default("PERCENT") // PERCENT | FIXED
+  commissionValue Int            @default(40)
+  active          Boolean        @default(true)
+  bookings        Booking[]
+  billItems       BillItem[]
+  packagePlans    PackagePlan[]
+  inventoryItem   InventoryItem?
+}
+
+model Therapist {
+  id        Int        @id @default(autoincrement())
+  name      String
+  specialty String?
+  years     Int        @default(0)
+  status    String     @default("AVAILABLE") // AVAILABLE | IN_SERVICE | OFF_SHIFT
+  user      User?
+  bookings  Booking[]
+  billItems BillItem[]
+}
+
+model Room {
+  id        Int        @id @default(autoincrement())
+  name      String     @unique
+  status    String     @default("AVAILABLE") // AVAILABLE | IN_USE | RESERVED | CLEANING
+  bookings  Booking[]
+  billItems BillItem[]
+}
+
+model Customer {
+  id        Int               @id @default(autoincrement())
+  name      String
+  phone     String?           @unique
+  member    Boolean           @default(false)
+  notes     String?
+  allergies String?
+  createdAt DateTime          @default(now())
+  bookings  Booking[]
+  bills     Bill[]
+  packages  CustomerPackage[]
+  vouchers  Voucher[]
+}
+
+model PackagePlan {
+  id               Int               @id @default(autoincrement())
+  name             String
+  description      String?
+  serviceId        Int?
+  service          Service?          @relation(fields: [serviceId], references: [id])
+  quotaType        String            @default("SESSIONS") // SESSIONS | MINUTES
+  totalQuota       Int
+  price            Int
+  validDays        Int               @default(180)
+  active           Boolean           @default(true)
+  customerPackages CustomerPackage[]
+}
+
+model CustomerPackage {
+  id             Int         @id @default(autoincrement())
+  customerId     Int
+  customer       Customer    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  planId         Int
+  plan           PackagePlan @relation(fields: [planId], references: [id])
+  totalQuota     Int
+  remainingQuota Int
+  expiresAt      DateTime
+  createdAt      DateTime    @default(now())
+  billItems      BillItem[]
+
+  @@index([customerId, expiresAt])
+}
+
+model Voucher {
+  id             Int       @id @default(autoincrement())
+  code           String    @unique
+  initialValue   Int
+  remainingValue Int
+  customerId     Int?
+  customer       Customer? @relation(fields: [customerId], references: [id])
+  note           String?
+  expiresAt      DateTime?
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  bills          Bill[]
+}
+
+model Booking {
+  id          Int        @id @default(autoincrement())
+  customerId  Int?
+  customer    Customer?  @relation(fields: [customerId], references: [id])
+  serviceId   Int
+  service     Service    @relation(fields: [serviceId], references: [id])
+  therapistId Int
+  therapist   Therapist  @relation(fields: [therapistId], references: [id])
+  roomId      Int
+  room        Room       @relation(fields: [roomId], references: [id])
+  startsAt    DateTime
+  endsAt      DateTime
+  status      String     @default("BOOKED") // BOOKED | IN_SERVICE | DONE | CANCELLED
+  source      String     @default("WALK_IN") // WALK_IN | PHONE | LINE_OA | WEB
+  note        String?
+  createdAt   DateTime   @default(now())
+  billItems   BillItem[]
+
+  @@index([therapistId, startsAt, endsAt])
+  @@index([roomId, startsAt, endsAt])
+}
+
+model Bill {
+  id            Int        @id @default(autoincrement())
+  billNo        String     @unique
+  status        String     // PAID | HELD | CANCELLED
+  customerId    Int?
+  customer      Customer?  @relation(fields: [customerId], references: [id])
+  subtotal      Int
+  discount      Int        @default(0)
+  voucherId     Int?
+  voucher       Voucher?   @relation(fields: [voucherId], references: [id])
+  voucherAmount Int        @default(0)
+  total         Int
+  tip           Int        @default(0)
+  tipMethod     String?    // CASH | PROMPTPAY | CARD
+  createdById   String?
+  createdAt     DateTime   @default(now())
+  items         BillItem[]
+  payments      Payment[]
+}
+
+model BillItem {
+  id                Int              @id @default(autoincrement())
+  billId            Int
+  bill              Bill             @relation(fields: [billId], references: [id], onDelete: Cascade)
+  serviceId         Int
+  service           Service          @relation(fields: [serviceId], references: [id])
+  therapistId       Int?
+  therapist         Therapist?       @relation(fields: [therapistId], references: [id])
+  roomId            Int?
+  room              Room?            @relation(fields: [roomId], references: [id])
+  bookingId         Int?
+  booking           Booking?         @relation(fields: [bookingId], references: [id])
+  customerPackageId Int?
+  customerPackage   CustomerPackage? @relation(fields: [customerPackageId], references: [id])
+  quotaUsed         Int              @default(0)
+  minutes           Int
+  price             Int
+  commission        Int              @default(0)
+  note              String?
+}
+
+model Payment {
+  id     Int    @id @default(autoincrement())
+  billId Int
+  bill   Bill   @relation(fields: [billId], references: [id], onDelete: Cascade)
+  method String // CASH | PROMPTPAY | CARD
+  amount Int
+}
+
+model InventoryItem {
+  id        Int             @id @default(autoincrement())
+  sku       String          @unique
+  name      String
+  kind      String          @default("CONSUMABLE") // RETAIL | CONSUMABLE
+  unit      String          @default("ชิ้น")
+  stock     Int             @default(0)
+  minStock  Int             @default(5)
+  cost      Int             @default(0)
+  price     Int             @default(0)
+  serviceId Int?            @unique
+  service   Service?        @relation(fields: [serviceId], references: [id])
+  active    Boolean         @default(true)
+  movements StockMovement[]
+}
+
+model StockMovement {
+  id        Int           @id @default(autoincrement())
+  itemId    Int
+  item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type      String        // RESTOCK | ISSUE | SALE | ADJUST
+  delta     Int
+  note      String?
+  createdAt DateTime      @default(now())
+}
